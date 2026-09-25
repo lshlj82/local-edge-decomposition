@@ -26,7 +26,7 @@ Because *h* is relative to a node's neighbours, a node that dominates a small gr
   - Zachary's karate club.
   - Your own edge list, pasted in (up to 2,000 nodes; the largest connected component is used).
 - **Decomposition**: LED or k-core, applied to the whole network or within each Louvain community (adjustable resolution γ), following Sec. III B.
-- **Colouring**: level, hub centrality, optimal core vs. periphery, or community.
+- **coloring**: level, hub centrality, optimal core vs. periphery, or community.
 - **Charts**
   - Giant-component size vs. fraction of removed edges for the hub-centrality product, the degree product and edge betweenness. The cusp at *p*<sub>c</sub> = *e*<sub>0</sub> is marked (Figs. 1–2).
   - Links from each level to higher, lower and same levels (Fig. 5).
