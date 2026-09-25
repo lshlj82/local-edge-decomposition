@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Peeling a network by its local hubs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --ink:#18202c; --ink-2:#465164; --ink-3:#768196;
+  --line:#d6dce5; --accent:#5b4fc4; --accent-ink:#ffffff; --ghost:#c6cdd8; --edge:30,40,56;
+  --higher:#e4572e; --lower:#4f6bd8; --same:#2f9a74; --empty:#dde2ea;
+  --serif:"Newsreader", "Iowan Old Style", Georgia, serif;
+  --sans:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111722; --surface:#19212e; --ink:#e6eaf1; --ink-2:#adb6c5; --ink-3:#7c8799;
+    --line:#2b3546; --accent:#a197ff; --accent-ink:#151027; --ghost:#364154; --edge:214,222,236;
+    --empty:#2a3343; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111722; --surface:#19212e; --ink:#e6eaf1; --ink-2:#adb6c5; --ink-3:#7c8799;
+  --line:#2b3546; --accent:#a197ff; --accent-ink:#151027; --ghost:#364154; --edge:214,222,236;
+  --empty:#2a3343; color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+a{color:var(--accent)}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 20px 40px}
+header h1{font-family:var(--serif);font-weight:500;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:0 0 10px;letter-spacing:-0.01em}
+header p{margin:0;max-width:68ch;color:var(--ink-2);font-size:16px}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;margin-top:22px}
+@media (max-width:900px){.stage{grid-template-columns:1fr}}
+.viz{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;min-width:0}
+.canvas-wrap{position:relative;width:100%;height:min(66vh,640px);min-height:340px}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;border-radius:8px}
+canvas.dragging{cursor:grabbing}
+#tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:13px;line-height:1.45;padding:8px 10px;border-radius:6px;max-width:240px;z-index:2}
+#tip strong{font-weight:600}
+.peel{display:flex;align-items:center;gap:12px;padding:12px 4px 4px;flex-wrap:wrap}
+.peel label{font-size:14px;color:var(--ink-2);white-space:nowrap}
+.peel output{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.peel input[type=range]{flex:1;min-width:160px}
+.legend{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--ink-2);padding:6px 4px 0}
+.legend .bar{width:160px;height:10px;border-radius:5px}
+.legend .sw{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:5px}
+.readout{margin:10px 4px 2px;font-size:14px;color:var(--ink-2);max-width:80ch;min-height:3em}
+.readout b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.panel{display:flex;flex-direction:column;gap:14px}
+.group{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 14px 16px;margin:0}
+.group h2{font-family:var(--serif);font-weight:500;font-size:19px;margin:0 0 10px}
+.group p{margin:0 0 8px;font-size:14px;color:var(--ink-2)}
+.group p:last-child{margin-bottom:0}
+.seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--bg);border-radius:9px;padding:3px;margin:0 0 10px;border:0}
+.seg label{flex:1 1 auto;text-align:center;position:relative}
+.seg input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.seg span{display:block;padding:6px 8px;border-radius:7px;font-size:13px;color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.seg input:checked+span{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 0 0 1px var(--line)}
+.seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:1px}
+.field{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin:0 0 10px;font-size:14px}
+.field label{color:var(--ink-2)}
+.field output{font-variant-numeric:tabular-nums;font-weight:600}
+.field input[type=range]{grid-column:1/-1;width:100%}
+select,textarea{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;min-height:110px;resize:vertical}
+.small{font-size:12.5px;color:var(--ink-3)}
+button{font:inherit;font-size:14px;font-weight:500;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:7px 12px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=range]{accent-color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.err{color:var(--higher);font-size:13px;margin-top:6px}
+.formula{font-family:var(--serif);font-size:17px;margin:4px 0 10px;color:var(--ink)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:20px;margin-top:20px}
+figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
+figure h3{font-family:var(--serif);font-weight:500;font-size:18px;margin:0 0 2px}
+figure .sub{font-size:13px;color:var(--ink-3);margin:0 0 6px;min-height:1.4em}
+figure svg{width:100%;height:auto;display:block;overflow:visible}
+figcaption{font-size:13px;color:var(--ink-2);margin-top:6px}
+.empty-msg{font-size:14px;color:var(--ink-3);padding:40px 10px;text-align:center}
+footer{margin-top:26px;font-size:13px;color:var(--ink-3);max-width:80ch}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Peeling a network by its local hubs</h1>
+  <p>An interactive version of the local-edge decomposition (LED) from Jeong, Yu and Lee, <a href="https://doi.org/10.1103/PhysRevE.111.054302" target="_blank" rel="noopener">Phys. Rev. E 111, 054302 (2025)</a>. Slide the level control to strip the network shell by shell, and compare it with k-core decomposition.</p>
+</header>
+
+<div class="stage">
+  <section class="viz" aria-label="Network view">
+    <div class="canvas-wrap" id="cwrap">
+      <canvas id="net" aria-label="Force-directed drawing of the network, coloured by decomposition level"></canvas>
+      <div id="tip" hidden></div>
+    </div>
+    <div class="peel">
+      <button id="play" class="primary" type="button">Peel</button>
+      <label for="lvl">Showing levels ≥ <output id="lvlOut">0</output> of <span id="lvlMax">0</span></label>
+      <input type="range" id="lvl" min="0" max="0" step="1" value="0">
+    </div>
+    <div class="legend" id="legend"></div>
+    <p class="readout" id="readout"></p>
+  </section>
+
+  <aside class="panel">
+    <fieldset class="group">
+      <h2>Network</h2>
+      <select id="gen" aria-label="Network to decompose">
+        <option value="communities">Communities of mixed size</option>
+        <option value="ba">Barabási–Albert model</option>
+        <option value="sbm">Three-tier block model (Sec. III C)</option>
+        <option value="karate">Zachary karate club</option>
+        <option value="fig3">Small worked example (Fig. 3)</option>
+        <option value="custom">Paste an edge list</option>
+      </select>
+      <div id="params" style="margin-top:12px"></div>
+    </fieldset>
+
+    <fieldset class="group">
+      <h2>Decomposition</h2>
+      <div class="seg" role="radiogroup" aria-label="Method">
+        <label><input type="radio" name="method" value="led" checked><span>Local-edge (LED)</span></label>
+        <label><input type="radio" name="method" value="kcore"><span>k-core</span></label>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Scope">
+        <label><input type="radio" name="scope" value="whole" checked><span>Whole network</span></label>
+        <label><input type="radio" name="scope" value="comm"><span>Within communities</span></label>
+      </div>
+      <div id="commCtl" class="hidden">
+        <div class="field">
+          <label for="gamma">Louvain resolution γ</label><output id="gammaOut">1.0</output>
+          <input type="range" id="gamma" min="0.2" max="2" step="0.1" value="1">
+        </div>
+        <label for="commSel" class="small">Community shown in the charts (or click a node)</label>
+        <select id="commSel" style="margin-top:4px"></select>
+      </div>
+      <h2 style="margin-top:14px">Colour by</h2>
+      <div class="seg" role="radiogroup" aria-label="Colour nodes by">
+        <label><input type="radio" name="color" value="level" checked><span>Level</span></label>
+        <label><input type="radio" name="color" value="h"><span>Hub centrality</span></label>
+        <label><input type="radio" name="color" value="cp"><span>Core / periphery</span></label>
+        <label><input type="radio" name="color" value="comm"><span>Community</span></label>
+      </div>
+    </fieldset>
+
+    <section class="group">
+      <h2>How LED works</h2>
+      <p>A node's hub centrality is the share of its neighbours with strictly smaller degree:</p>
+      <div class="formula"><i>h<sub>i</sub></i> = <i>N</i><sub>&lt;<i>k<sub>i</sub></i></sub> / <i>k<sub>i</sub></i>,&ensp; <i>E<sub>ij</sub></i> = <i>h<sub>i</sub> h<sub>j</sub></i></div>
+      <p>At each level, compute <i>h</i> in the current backbone and cut every edge whose product <i>E</i> is zero, meaning every edge touching a locally smallest node. The largest piece left is the next backbone; the nodes that fall off are that level's shell. Repeat until nothing is left.</p>
+      <p>Because <i>h</i> is relative, a modest node that dominates its own neighbourhood survives as long as a global hub does.</p>
+    </section>
+  </aside>
+</div>
+
+<section class="charts" aria-label="Analysis charts">
+  <figure>
+    <h3>Edge pruning of the current backbone</h3>
+    <p class="sub" id="c1sub"></p>
+    <div id="chart1"></div>
+    <figcaption>Giant-component size <i>G</i> as edges are removed in order of increasing importance. With the hub-centrality product, the curve breaks exactly where the zero-product edges run out.</figcaption>
+  </figure>
+  <figure>
+    <h3>Where each level's neighbours sit</h3>
+    <p class="sub" id="c2sub"></p>
+    <div id="chart2"></div>
+    <figcaption>For nodes at each level, the share of their links to higher, lower or same levels (Fig. 5 in the paper). Grey columns are empty levels.</figcaption>
+  </figure>
+  <figure>
+    <h3>Core–periphery score</h3>
+    <p class="sub" id="c3sub"></p>
+    <div id="chart3"></div>
+    <figcaption>Treat levels ≥ <i>L<sub>B</sub></i> as the core. Densities are on a log scale; <i>S</i><sub>cp</sub> (Eq. 4) peaks at the boundary closest to an ideal core–periphery split.</figcaption>
+  </figure>
+</section>
+
+<footer>
+  Everything is computed in your browser. Communities come from a Louvain implementation with adjustable resolution, as in Sec. III B, so results vary slightly between samples. Hub centrality is computed once per level and never recalculated during pruning, following the paper. Drag nodes to rearrange the drawing; hover a node for its numbers.
+  <br><br>Demo built with Claude Opus 5.5 (Anthropic), based on the method of Wonhee Jeong, Unjong Yu and Sang Hoon Lee. Karate club data: W. W. Zachary, J. Anthropol. Res. 33, 452 (1977).
+</footer>
+</div>
+
+<script>
+(() => {
+'use strict';
+/* ---------------- utilities ---------------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function shuffle(arr,r){for(let i=arr.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}return arr}
+function makeUF(N){const p=new Int32Array(N),s=new Int32Array(N).fill(1);for(let i=0;i<N;i++)p[i]=i;
+  const find=x=>{while(p[x]!==x){p[x]=p[p[x]];x=p[x]}return x};
+  return{find,union(a,b){a=find(a);b=find(b);if(a===b)return s[a];if(s[a]<s[b]){const t=a;a=b;b=t}p[b]=a;s[a]+=s[b];return s[a]}}}
+function largestComponent(nodes,edges,N){const U=makeUF(N);for(const[u,v]of edges)U.union(u,v);
+  const cnt=new Map();let best=-1,bs=0;for(const u of nodes){const r=U.find(u);const c=(cnt.get(r)||0)+1;cnt.set(r,c);if(c>bs){bs=c;best=r}}
+  return nodes.filter(u=>U.find(u)===best)}
+function adjOf(N,edges){const a=Array.from({length:N},()=>[]);for(const[u,v]of edges){a[u].push(v);a[v].push(u)}return a}
+const pct=x=>(100*x).toFixed(x<0.1&&x>0?1:0)+'%';
+
+/* ---------------- colours ---------------- */
+const RAMP=['#9fb3c8','#6f7fd8','#8a4fc9','#c23b8e','#ee5a3c','#f4a93b'];
+const RAMP_RGB=RAMP.map(h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)));
+function ramp(t){t=Math.max(0,Math.min(1,t));const x=t*(RAMP.length-1);const i=Math.min(RAMP.length-2,Math.floor(x));const f=x-i;
+  const a=RAMP_RGB[i],b=RAMP_RGB[i+1];return`rgb(${Math.round(a[0]+(b[0]-a[0])*f)},${Math.round(a[1]+(b[1]-a[1])*f)},${Math.round(a[2]+(b[2]-a[2])*f)})`}
+const RAMP_CSS='linear-gradient(90deg,'+RAMP.join(',')+')';
+const CAT=['#4f6bd8','#e4572e','#2f9a74','#b0489c','#d9a21b','#2b9bb8','#7a5cd6','#c7543f','#5c8f3a','#a16a3c','#d0648f','#3f7fa3'];
+const CORE_COLOR='#ee5a3c';
+let T={};
+function readTokens(){const cs=getComputedStyle(document.documentElement);
+  for(const k of['ink','ink-2','ink-3','ghost','edge','accent','line','surface'])T[k]=cs.getPropertyValue('--'+k).trim()}
+
+/* ---------------- generators ---------------- */
+function genBA(n,m,r){const edges=[],targets=[];const m0=Math.min(n,m+1);
+  for(let i=0;i<m0;i++)for(let j=0;j<i;j++){edges.push([i,j]);targets.push(i,j)}
+  for(let v=m0;v<n;v++){const ch=new Set();while(ch.size<Math.min(m,v))ch.add(targets[Math.floor(r()*targets.length)]);
+    for(const u of ch){edges.push([v,u]);targets.push(v,u)}}
+  return{n,edges}}
+function genSBM(sizes,P,r){const b=[];sizes.forEach((s,i)=>{for(let k=0;k<s;k++)b.push(i)});const n=b.length,edges=[];
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)if(r()<P[b[i]][b[j]])edges.push([i,j]);return{n,edges}}
+function genCommunities(n,r){const fr=[.3,.2,.14,.1,.08,.07,.06,.05];const sizes=fr.map(f=>Math.max(6,Math.round(f*n)));
+  const edges=[],groups=[];let off=0;
+  for(const s of sizes){const g=genBA(s,s>=45?3:2,r);for(const[u,v]of g.edges)edges.push([u+off,v+off]);groups.push([off,s]);off+=s}
+  const pick=g=>groups[g][0]+Math.floor(r()*groups[g][1]);
+  for(let g=1;g<groups.length;g++)edges.push([pick(g),pick(Math.floor(r()*g))]);
+  const inter=Math.round(off*0.05);
+  for(let k=0;k<inter;k++){const a=Math.floor(r()*groups.length);let b=Math.floor(r()*groups.length);if(a===b)b=(b+1)%groups.length;edges.push([pick(a),pick(b)])}
+  return{n:off,edges}}
+function genFig3(){const e=[];for(let i=0;i<4;i++)for(let j=0;j<i;j++)e.push([i,j]);
+  [[0,1],[1,2],[2,3],[3,0],[0,2],[1,3]].forEach(([a,b],k)=>{e.push([4+k,a],[4+k,b]);e.push([10+2*k,4+k],[11+2*k,4+k])});
+  e.push([22,4],[22,5],[23,6],[23,7]);return{n:24,edges:e}}
+const KARATE='1:2 3 4 5 6 7 8 9 11 12 13 14 18 20 22 32|2:3 4 8 14 18 20 22 31|3:4 8 9 10 14 28 29 33|4:8 13 14|5:7 11|6:7 11 17|7:17|9:31 33 34|10:34|14:34|15:33 34|16:33 34|19:33 34|20:34|21:33 34|23:33 34|24:26 28 30 33 34|25:26 28 32|26:32|27:30 34|28:34|29:32 34|30:33 34|31:33 34|32:33 34|33:34';
+function genKarate(){const edges=[];for(const row of KARATE.split('|')){const[a,b]=row.split(':');for(const x of b.split(' '))edges.push([+a-1,+x-1])}
+  return{n:34,edges,labels:Array.from({length:34},(_,i)=>String(i+1))}}
+function parseEdgeList(text){const map=new Map(),labels=[],edges=[];
+  const id=s=>{if(!map.has(s)){map.set(s,labels.length);labels.push(s)}return map.get(s)};
+  for(const line of text.split(/\r?\n/)){const t=line.trim();if(!t||t[0]==='#'||t[0]==='%')continue;
+    const p=t.split(/[\s,;]+/);if(p.length<2)continue;edges.push([id(p[0]),id(p[1])])}
+  return{n:labels.length,edges,labels}}
+
+function finalize(g){const n=g.n,seen=new Set(),E=[];
+  for(const[a,b]of g.edges){if(a===b)continue;const u=Math.min(a,b),v=Math.max(a,b),k=u+','+v;if(seen.has(k))continue;seen.add(k);E.push([u,v])}
+  const all=[...Array(n).keys()];const giant=largestComponent(all,E,n);const idx=new Int32Array(n).fill(-1);giant.forEach((u,i)=>idx[u]=i);
+  const edges=[];for(const[u,v]of E)if(idx[u]>=0&&idx[v]>=0)edges.push([idx[u],idx[v]]);
+  const labels=giant.map(u=>g.labels?g.labels[u]:String(u));const N=giant.length,adj=adjOf(N,edges);
+  return{N,edges,adj,deg:adj.map(a=>a.length),labels,dropped:n-N}}
+
+/* ---------------- algorithms ---------------- */
+function hubCentrality(N,edges){const deg=new Int32Array(N),low=new Int32Array(N);
+  for(const[u,v]of edges){deg[u]++;deg[v]++}
+  for(const[u,v]of edges){if(deg[v]<deg[u])low[u]++;else if(deg[u]<deg[v])low[v]++}
+  const h=new Float64Array(N);for(let i=0;i<N;i++)h[i]=deg[i]?low[i]/deg[i]:0;return{h,deg}}
+
+function led(N,edges){const level=new Int32Array(N).fill(-1),info=[];
+  let nodes=[...Array(N).keys()],E=edges,L=0;
+  while(nodes.length){
+    const deg=new Int32Array(N),low=new Int32Array(N);
+    for(const[u,v]of E){deg[u]++;deg[v]++}
+    for(const[u,v]of E){if(deg[v]<deg[u])low[u]++;else if(deg[u]<deg[v])low[v]++}
+    const hz=u=>low[u]===0;let n0=0;for(const u of nodes)if(hz(u))n0++;
+    if(E.length===0){for(const u of nodes)level[u]=L;info.push({N:nodes.length,M:0,e0:1,n0:1,g:0});break}
+    const kept=E.filter(([u,v])=>!hz(u)&&!hz(v));
+    const giant=kept.length?largestComponent(nodes,kept,N):[];
+    const inG=new Uint8Array(N);for(const u of giant)inG[u]=1;
+    for(const u of nodes)if(!inG[u])level[u]=L;
+    info.push({N:nodes.length,M:E.length,e0:1-kept.length/E.length,n0:n0/nodes.length,g:giant.length/nodes.length});
+    if(giant.length<=1){for(const u of giant)level[u]=L;break}
+    E=kept.filter(([u])=>inG[u]);nodes=giant;L++;
+  }
+  return{level,info}}
+
+function kcore(N,adj){const deg=adj.map(a=>a.length);let maxd=0;for(const d of deg)if(d>maxd)maxd=d;
+  const bin=new Int32Array(maxd+1);for(const d of deg)bin[d]++;let start=0;for(let d=0;d<=maxd;d++){const c=bin[d];bin[d]=start;start+=c}
+  const pos=new Int32Array(N),vert=new Int32Array(N);
+  for(let v=0;v<N;v++){pos[v]=bin[deg[v]];vert[pos[v]]=v;bin[deg[v]]++}
+  for(let d=maxd;d>0;d--)bin[d]=bin[d-1];bin[0]=0;
+  for(let i=0;i<N;i++){const v=vert[i];for(const u of adj[v]){if(deg[u]>deg[v]){const du=deg[u],pu=pos[u],pw=bin[du],w=vert[pw];
+    if(u!==w){pos[u]=pw;vert[pu]=w;pos[w]=pu;vert[pw]=u}bin[du]++;deg[u]--}}}
+  return Int32Array.from(deg)}
+
+function cpScore(N,edges,level,minL,maxL){const rows=[];const M=edges.length;const D=N>1?2*M/(N*(N-1)):0;const adj=adjOf(N,edges);
+  for(let LB=minL+1;LB<=maxL;LB++){let Nc=0;for(let i=0;i<N;i++)if(level[i]>=LB)Nc++;const Np=N-Nc;
+    if(Nc<2||Np<1){rows.push({LB,S:null});continue}
+    let Mcc=0,Mcp=0,Mpp=0;for(const[u,v]of edges){const a=level[u]>=LB,b=level[v]>=LB;if(a&&b)Mcc++;else if(a||b)Mcp++;else Mpp++}
+    let Npc=0;for(let i=0;i<N;i++)if(level[i]<LB&&adj[i].some(j=>level[j]>=LB))Npc++;
+    const Dcc=2*Mcc/(Nc*(Nc-1)),Dcp=Mcp/(Nc*Np),Dpp=Np>1?2*Mpp/(Np*(Np-1)):null;
+    rows.push({LB,Nc,Dcc,Dcp,Dpp,S:Dcc*Npc/Np-D*Math.min(1,D*Nc)})}
+  let best=null;for(const r of rows)if(r.S!==null&&(best===null||r.S>best.S))best=r;
+  return{rows,best}}
+
+function edgeBetweenness(N,edges){const adj=Array.from({length:N},()=>[]);edges.forEach(([u,v],e)=>{adj[u].push(v,e);adj[v].push(u,e)});
+  const eb=new Float64Array(edges.length),sigma=new Float64Array(N),dist=new Int32Array(N),delta=new Float64Array(N),stack=new Int32Array(N),queue=new Int32Array(N);
+  for(let s=0;s<N;s++){sigma.fill(0);dist.fill(-1);delta.fill(0);sigma[s]=1;dist[s]=0;let qh=0,qt=0,sp=0;queue[qt++]=s;
+    while(qh<qt){const v=queue[qh++];stack[sp++]=v;const a=adj[v];for(let i=0;i<a.length;i+=2){const w=a[i];if(dist[w]<0){dist[w]=dist[v]+1;queue[qt++]=w}if(dist[w]===dist[v]+1)sigma[w]+=sigma[v]}}
+    while(sp>0){const w=stack[--sp];const a=adj[w];for(let i=0;i<a.length;i+=2){const v=a[i];if(dist[v]===dist[w]-1){const c=sigma[v]/sigma[w]*(1+delta[w]);eb[a[i+1]]+=c;delta[v]+=c}}}}
+  return eb}
+
+function pruneCurve(N,edges,imp){const E=edges.length;const idx=shuffle([...Array(E).keys()],Math.random);idx.sort((a,b)=>imp[a]-imp[b]);
+  const U=makeUF(N);let giant=1;const Gs=new Float64Array(E+1);Gs[0]=1/N;
+  for(let j=0;j<E;j++){const[u,v]=edges[idx[E-1-j]];giant=Math.max(giant,U.union(u,v));Gs[j+1]=giant/N}
+  const pts=[],step=Math.max(1,Math.floor(E/240));
+  for(let j=E;j>=0;j-=step)pts.push([(E-j)/E,Gs[j]]);if(pts[pts.length-1][0]!==1)pts.push([1,Gs[0]]);return pts}
+
+function louvain(n,edges,gamma,r){let N=n,adj=Array.from({length:N},()=>new Map()),self=new Float64Array(N);
+  for(const[u,v]of edges){adj[u].set(v,(adj[u].get(v)||0)+1);adj[v].set(u,(adj[v].get(u)||0)+1)}
+  const member=Array.from({length:n},(_,i)=>i);
+  for(let lev=0;lev<20;lev++){const k=new Float64Array(N);let m2=0;
+    for(let i=0;i<N;i++){k[i]=2*self[i];for(const w of adj[i].values())k[i]+=w;m2+=k[i]}
+    if(m2===0)break;
+    const comm=Int32Array.from({length:N},(_,i)=>i),tot=Float64Array.from(k);let moved=false;
+    const order=shuffle([...Array(N).keys()],r);
+    for(let pass=0;pass<40;pass++){let improved=false;
+      for(const i of order){const ci=comm[i],wc=new Map();for(const[j,w]of adj[i])wc.set(comm[j],(wc.get(comm[j])||0)+w);
+        tot[ci]-=k[i];let best=ci,bg=(wc.get(ci)||0)-gamma*tot[ci]*k[i]/m2;
+        for(const[c,w]of wc){const g=w-gamma*tot[c]*k[i]/m2;if(g>bg+1e-12){bg=g;best=c}}
+        tot[best]+=k[i];if(best!==ci){comm[i]=best;improved=true;moved=true}}
+      if(!improved)break}
+    if(!moved)break;
+    const map=new Map();let C=0;for(let i=0;i<N;i++)if(!map.has(comm[i]))map.set(comm[i],C++);
+    const nadj=Array.from({length:C},()=>new Map()),nself=new Float64Array(C);
+    for(let i=0;i<N;i++){const ci=map.get(comm[i]);nself[ci]+=self[i];for(const[j,w]of adj[i]){const cj=map.get(comm[j]);if(ci===cj)nself[ci]+=w/2;else nadj[ci].set(cj,(nadj[ci].get(cj)||0)+w)}}
+    for(let o=0;o<n;o++)member[o]=map.get(comm[member[o]]);adj=nadj;self=nself;N=C}
+  const size=new Map();for(const c of member)size.set(c,(size.get(c)||0)+1);
+  const rank=[...size.keys()].sort((a,b)=>size.get(b)-size.get(a));const re=new Map();rank.forEach((c,i)=>re.set(c,i));
+  return Int32Array.from(member.map(c=>re.get(c)))}
+
+/* ---------------- state ---------------- */
+const state={gen:'communities',seed:3,n:260,m:2,baN:300,method:'led',scope:'whole',color:'level',L:0,gamma:1,sel:0,
+  custom:'',customErr:''};
+let G=null,comm=null,commLists=[],cache={},units=[],unitOf=null,nodeLevel=null,nodeMax=null,nodeH=null,nodeCore=null,drawOrder=[];
+let lvlMin=0,lvlMax=0;
+
+function generate(){const r=mulberry32(state.seed*9973+17);
+  switch(state.gen){
+    case'ba':return finalize(genBA(state.baN,state.m,r));
+    case'sbm':return finalize(genSBM([20,40,100],[[.7,.5,0],[.5,.3,.2],[0,.2,.1]],r));
+    case'fig3':return finalize(genFig3());
+    case'karate':return finalize(genKarate());
+    case'custom':{const g=parseEdgeList(state.custom);
+      if(g.edges.length<1){state.customErr='No edges found. Put one edge per line, like “a b”.';return null}
+      if(g.n>2000){state.customErr=`That list has ${g.n.toLocaleString()} nodes; this demo draws up to 2,000.`;return null}
+      state.customErr='';return finalize(g)}
+    default:return finalize(genCommunities(state.n,r))}}
+
+function induced(ids){const idx=new Int32Array(G.N).fill(-1);ids.forEach((g,i)=>idx[g]=i);const edges=[];
+  for(const[u,v]of G.edges)if(idx[u]>=0&&idx[v]>=0)edges.push([idx[u],idx[v]]);return{ids,idx,N:ids.length,edges}}
+
+function makeUnit(ids,method,label){const sg=induced(ids);let level,info=null;
+  if(sg.N===1){level=new Int32Array(1)}
+  else if(method==='led'){const r=led(sg.N,sg.edges);level=r.level;info=r.info}
+  else level=kcore(sg.N,adjOf(sg.N,sg.edges));
+  let minL=Infinity,maxL=-Infinity;for(const l of level){if(l<minL)minL=l;if(l>maxL)maxL=l}
+  const hc=hubCentrality(sg.N,sg.edges);
+  return{...sg,label,level,info,minL,maxL,h:hc.h,cp:cpScore(sg.N,sg.edges,level,minL,maxL)}}
+
+function decomposition(){const key=state.method+'|'+state.scope;if(cache[key])return cache[key];let us;
+  if(state.scope==='whole')us=[makeUnit([...Array(G.N).keys()],state.method,'the whole network')];
+  else us=commLists.map((ids,c)=>makeUnit(ids,state.method,`community ${c+1}`));
+  return cache[key]=us}
+
+function detectCommunities(){comm=louvain(G.N,G.edges,state.gamma,mulberry32(state.seed+101));
+  const C=Math.max(...comm)+1;commLists=Array.from({length:C},()=>[]);for(let i=0;i<G.N;i++)commLists[comm[i]].push(i);
+  delete cache['led|comm'];delete cache['kcore|comm'];
+  if(state.sel>=C)state.sel=0;
+  const sel=document.getElementById('commSel');
+  sel.innerHTML=commLists.map((l,c)=>`<option value="${c}">Community ${c+1} (${l.length} nodes)</option>`).join('');sel.value=state.sel}
+
+function rebuild(){units=decomposition();unitOf=new Int32Array(G.N);nodeLevel=new Int32Array(G.N);nodeMax=new Int32Array(G.N);
+  nodeH=new Float64Array(G.N);nodeCore=new Uint8Array(G.N);lvlMin=Infinity;lvlMax=-Infinity;
+  units.forEach((u,ui)=>{const best=u.cp.best;u.ids.forEach((g,i)=>{unitOf[g]=ui;nodeLevel[g]=u.level[i];nodeMax[g]=u.maxL;nodeH[g]=u.h[i];
+    nodeCore[g]=best&&u.level[i]>=best.LB?1:0});if(u.minL<lvlMin)lvlMin=u.minL;if(u.maxL>lvlMax)lvlMax=u.maxL});
+  if(state.method==='led')lvlMin=0;
+  state.L=Math.max(lvlMin,Math.min(lvlMax,state.L));
+  const s=document.getElementById('lvl');s.min=lvlMin;s.max=lvlMax;s.value=state.L;
+  document.getElementById('lvlMax').textContent=lvlMax;
+  drawOrder=[...Array(G.N).keys()].sort((a,b)=>nodeLevel[a]-nodeLevel[b]);
+  document.getElementById('commCtl').classList.toggle('hidden',state.scope!=='comm');
+  updateColors();updateLegend();onLevel()}
+
+function activeUnit(){return state.scope==='whole'?units[0]:units[Math.min(state.sel,units.length-1)]}
+
+/* ---------------- drawing the network ---------------- */
+const canvas=document.getElementById('net'),ctx=canvas.getContext('2d'),wrap=document.getElementById('cwrap'),tip=document.getElementById('tip');
+let W=0,H=0,dpr=1,dirty=true;
+const sim={x:null,y:null,vx:null,vy:null,fixed:-1,alpha:1};
+let view={s:1,tx:0,ty:0},drag=-1,hover=-1,colors=[],dispA=null,targetA=null;
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function resize(){const r=wrap.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);dirty=true}
+new ResizeObserver(resize).observe(wrap);
+
+function initSim(){const N=G.N;sim.x=new Float64Array(N);sim.y=new Float64Array(N);sim.vx=new Float64Array(N);sim.vy=new Float64Array(N);
+  const ga=Math.PI*(3-Math.sqrt(5));
+  // seed positions by community so groups start apart
+  const C=commLists.length,cx=[],cy=[];for(let c=0;c<C;c++){const a=c*ga,rr=40*Math.sqrt(c+0.5);cx.push(rr*Math.cos(a));cy.push(rr*Math.sin(a))}
+  const k=new Int32Array(C);
+  for(let i=0;i<N;i++){const c=comm[i],j=k[c]++,rr=6*Math.sqrt(j+0.5),a=j*ga;sim.x[i]=cx[c]+rr*Math.cos(a);sim.y[i]=cy[c]+rr*Math.sin(a)}
+  sim.alpha=1;for(let t=0;t<60;t++)tick();dispA=new Float64Array(N).fill(1);targetA=new Float64Array(N).fill(1)}
+
+function tick(){const N=G.N,x=sim.x,y=sim.y,vx=sim.vx,vy=sim.vy,a=sim.alpha,deg=G.deg;
+  const dist=N>400?22:30;
+  for(const[u,v]of G.edges){let dx=x[v]+vx[v]-x[u]-vx[u],dy=y[v]+vy[v]-y[u]-vy[u];let l=Math.hypot(dx,dy)||1e-6;
+    const s=1/Math.min(deg[u],deg[v]);l=(l-dist)/l*a*s;dx*=l;dy*=l;const b=deg[u]/(deg[u]+deg[v]);
+    vx[v]-=dx*b;vy[v]-=dy*b;vx[u]+=dx*(1-b);vy[u]+=dy*(1-b)}
+  const ch=-45*a;
+  for(let i=0;i<N;i++){const xi=x[i],yi=y[i];for(let j=i+1;j<N;j++){const dx=x[j]-xi,dy=y[j]-yi;let d2=dx*dx+dy*dy;if(d2<1)d2=1;const w=ch/d2;
+    vx[i]+=dx*w;vy[i]+=dy*w;vx[j]-=dx*w;vy[j]-=dy*w}}
+  for(let i=0;i<N;i++){vx[i]-=x[i]*0.03*a;vy[i]-=y[i]*0.03*a;
+    if(i===sim.fixed){vx[i]=0;vy[i]=0;continue}vx[i]*=0.6;vy[i]*=0.6;x[i]+=vx[i];y[i]+=vy[i]}
+  sim.alpha+=(0-sim.alpha)*0.0228}
+
+function fit(){let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;for(let i=0;i<G.N;i++){const x=sim.x[i],y=sim.y[i];if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+  const pad=22,bw=Math.max(1,x1-x0),bh=Math.max(1,y1-y0);const s=Math.min((W-2*pad)/bw,(H-2*pad)/bh,6);
+  view={s,tx:W/2-s*(x0+x1)/2,ty:H/2-s*(y0+y1)/2}}
+
+function radius(i){const base=G.N>500?1.6:G.N>250?2.2:G.N<40?4.5:3;return base+Math.sqrt(G.deg[i])*(G.N<40?1.6:0.9)}
+
+function updateColors(){colors=new Array(G.N);
+  for(let i=0;i<G.N;i++){let c;
+    if(state.color==='level')c=ramp(nodeMax[i]>0?nodeLevel[i]/nodeMax[i]:0);
+    else if(state.color==='h')c=ramp(nodeH[i]);
+    else if(state.color==='cp')c=nodeCore[i]?CORE_COLOR:T['ink-3'];
+    else c=CAT[comm[i]%CAT.length];colors[i]=c}
+  dirty=true}
+
+function draw(){ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);if(!G)return;
+  if(drag<0)fit();const{s,tx,ty}=view,X=i=>sim.x[i]*s+tx,Y=i=>sim.y[i]*s+ty;
+  const M=G.edges.length,ev=Math.max(0.07,Math.min(0.45,0.45*Math.sqrt(250/M)));
+  ctx.lineWidth=1;ctx.strokeStyle=`rgba(${T.edge},0.05)`;ctx.beginPath();
+  for(const[u,v]of G.edges)if(!(targetA[u]&&targetA[v])){ctx.moveTo(X(u),Y(u));ctx.lineTo(X(v),Y(v))}ctx.stroke();
+  ctx.strokeStyle=`rgba(${T.edge},${ev})`;ctx.beginPath();
+  for(const[u,v]of G.edges)if(targetA[u]&&targetA[v]){ctx.moveTo(X(u),Y(u));ctx.lineTo(X(v),Y(v))}ctx.stroke();
+  if(hover>=0){ctx.strokeStyle=T.ink;ctx.lineWidth=1.4;ctx.beginPath();for(const j of G.adj[hover]){ctx.moveTo(X(hover),Y(hover));ctx.lineTo(X(j),Y(j))}ctx.stroke()}
+  const selU=state.scope==='comm'?state.sel:-1;
+  for(const i of drawOrder){const a=dispA[i],r=radius(i)*(0.65+0.35*a);
+    ctx.globalAlpha=0.35+0.65*a;ctx.fillStyle=a<0.5?T.ghost:colors[i];
+    ctx.beginPath();ctx.arc(X(i),Y(i),r,0,6.2832);ctx.fill();
+    if(a>0.5&&(selU>=0&&comm[i]===selU||state.color==='cp'&&nodeCore[i])){ctx.lineWidth=1.1;ctx.strokeStyle=T.ink;ctx.stroke()}}
+  ctx.globalAlpha=1;
+  if(hover>=0){ctx.lineWidth=2;ctx.strokeStyle=T.ink;ctx.beginPath();ctx.arc(X(hover),Y(hover),radius(hover)+2.5,0,6.2832);ctx.stroke()}}
+
+function loop(){if(G){if(sim.alpha>0.003){tick();dirty=true}
+  let moving=false;for(let i=0;i<G.N;i++){const d=targetA[i]-dispA[i];if(Math.abs(d)>0.01){dispA[i]+=reduceMotion?d:d*0.18;moving=true}else dispA[i]=targetA[i]}
+  if(moving)dirty=true;if(dirty){draw();dirty=false}}requestAnimationFrame(loop)}
+
+function pickNode(mx,my){let best=-1,bd=Infinity;const{s,tx,ty}=view;
+  for(let i=0;i<G.N;i++){const dx=sim.x[i]*s+tx-mx,dy=sim.y[i]*s+ty-my,d=dx*dx+dy*dy,r=radius(i)+5;if(d<r*r&&d<bd){bd=d;best=i}}return best}
+function localXY(e){const r=canvas.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
+canvas.addEventListener('pointerdown',e=>{if(!G)return;const[mx,my]=localXY(e);const i=pickNode(mx,my);if(i<0)return;
+  drag=i;sim.fixed=i;canvas.setPointerCapture(e.pointerId);canvas.classList.add('dragging');sim.alpha=Math.max(sim.alpha,0.25);
+  if(state.scope==='comm'&&comm[i]!==state.sel){state.sel=comm[i];document.getElementById('commSel').value=state.sel;onLevel()}});
+canvas.addEventListener('pointermove',e=>{if(!G)return;const[mx,my]=localXY(e);
+  if(drag>=0){sim.x[drag]=(mx-view.tx)/view.s;sim.y[drag]=(my-view.ty)/view.s;sim.alpha=Math.max(sim.alpha,0.12);dirty=true;showTip(drag,mx,my);return}
+  const i=pickNode(mx,my);if(i!==hover){hover=i;dirty=true}if(i>=0)showTip(i,mx,my);else tip.hidden=true});
+const endDrag=()=>{drag=-1;sim.fixed=-1;canvas.classList.remove('dragging')};
+canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',endDrag);
+canvas.addEventListener('pointerleave',()=>{if(drag<0){hover=-1;tip.hidden=true;dirty=true}});
+
+function showTip(i,mx,my){const u=units[unitOf[i]];
+  const lv=state.method==='led'?`LED level ${nodeLevel[i]} of ${nodeMax[i]}`:`Core number ${nodeLevel[i]} (max ${nodeMax[i]})`;
+  const scope=state.scope==='comm'?' within its community':'';
+  tip.innerHTML=`<strong>Node ${escapeHTML(G.labels[i])}</strong><br>Degree ${G.deg[i]} in the whole network<br>Hub centrality h = ${nodeH[i].toFixed(2)}${scope}<br>${lv}${scope}<br>Community ${comm[i]+1}${nodeCore[i]?'<br>In the optimal core':''}`;
+  tip.hidden=false;const tw=tip.offsetWidth,th=tip.offsetHeight;let x=mx+14,y=my+14;if(x+tw>W)x=mx-tw-14;if(y+th>H)y=my-th-14;tip.style.left=Math.max(0,x)+'px';tip.style.top=Math.max(0,y)+'px'}
+function escapeHTML(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+/* ---------------- level change & readout ---------------- */
+function onLevel(){document.getElementById('lvlOut').textContent=state.L;
+  for(let i=0;i<G.N;i++)targetA[i]=nodeLevel[i]>=state.L?1:0;dirty=true;updateReadout();drawCharts()}
+
+function updateReadout(){const u=activeUnit(),L=state.L,el=document.getElementById('readout');
+  const where=state.scope==='comm'?`In ${u.label} (${u.N} nodes), `:'';
+  const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+  let vis=0;for(let i=0;i<u.N;i++)if(u.level[i]>=L)vis++;
+  if(state.method==='led'){
+    if(!u.info||L>u.maxL){el.innerHTML=cap(where+`this unit has no level ${L}; its innermost level is ${u.maxL}.`);return}
+    const f=u.info[L];
+    if(L===u.maxL||f.M===0){el.innerHTML=cap(where+`level ${L} is the innermost core: <b>${f.N}</b> node${f.N>1?'s':''} of equal degree${f.N>2?', typically a clique':''}. Every <i>h</i> is 0 here, so the whole core is removed at once and the decomposition ends.`);return}
+    el.innerHTML=cap(where+`the level-${L} backbone has <b>${f.N}</b> nodes and <b>${f.M}</b> edges. <b>${pct(f.n0)}</b> of its nodes have <i>h</i> = 0; cutting every edge that touches one removes <b>${pct(f.e0)}</b> of the edges (the cusp <i>p</i><sub>c</sub>), and <b>${pct(f.g)}</b> of the nodes stay connected as the level-${L+1} backbone.`)}
+  else{let m=0;for(const[a,b]of u.edges)if(u.level[a]>=L&&u.level[b]>=L)m++;
+    el.innerHTML=cap(where+`the ${L}-core keeps <b>${vis}</b> nodes and <b>${m}</b> edges: every node there has at least ${L} neighbours inside it. k-core ranks nodes by absolute degree, so a hub that dominates a small group is peeled early.`)}}
+
+function updateLegend(){const el=document.getElementById('legend');let h='';
+  const ghost=`<span><span class="sw" style="background:var(--ghost)"></span>Peeled away at the current level</span>`;
+  if(state.color==='level'){const lo=state.method==='led'?'Level 0, outer shell':'Lowest core number',hi=state.scope==='comm'?'Innermost level of each community':'Innermost level';
+    h=`<span>${lo}</span><span class="bar" style="background:${RAMP_CSS}"></span><span>${hi}</span>`}
+  else if(state.color==='h')h=`<span>h = 0</span><span class="bar" style="background:${RAMP_CSS}"></span><span>h = 1${state.scope==='comm'?' (within community)':''}</span>`;
+  else if(state.color==='cp'){const b=state.scope==='whole'&&units[0].cp.best?` (levels ≥ ${units[0].cp.best.LB})`:state.scope==='comm'?', at each community’s best boundary':'';
+    h=`<span><span class="sw" style="background:${CORE_COLOR}"></span>Core${b}</span><span><span class="sw" style="background:var(--ink-3)"></span>Periphery</span>`}
+  else h=`<span>Colour marks the ${commLists.length} Louvain communities</span>`;
+  el.innerHTML=h+ghost}
+
+/* ---------------- charts ---------------- */
+const CW=360,CH=236,PM={l:44,r:14,t:14,b:36};
+const lin=(d0,d1,r0,r1)=>v=>r0+(d1===d0?0.5:(v-d0)/(d1-d0))*(r1-r0);
+const txt=(x,y,s,o={})=>`<text x="${x}" y="${y}" font-size="${o.size||11}" text-anchor="${o.anchor||'middle'}" style="fill:${o.fill||'var(--ink-3)'};font-family:var(--sans)"${o.rot?` transform="rotate(-90 ${x} ${y})"`:''}>${s}</text>`;
+function frame(xt,yt,sx,sy,xl,yl){let g='';
+  for(const[v,l]of yt){const y=sy(v);g+=`<line x1="${PM.l}" x2="${CW-PM.r}" y1="${y}" y2="${y}" style="stroke:var(--line)" stroke-width="1"/>`+txt(PM.l-6,y+4,l,{anchor:'end'})}
+  for(const[v,l]of xt)g+=txt(sx(v),CH-PM.b+15,l);
+  g+=txt((PM.l+CW-PM.r)/2,CH-4,xl)+txt(12,(PM.t+CH-PM.b)/2,yl,{rot:true});return g}
+const svg=inner=>`<svg viewBox="0 0 ${CW} ${CH}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+const pathOf=(pts,sx,sy)=>pts.map((p,i)=>(i?'L':'M')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join('');
+
+function drawCharts(){const u=activeUnit();const name=state.scope==='comm'?`${u.label[0].toUpperCase()+u.label.slice(1)}, ${u.N} nodes`:`Whole network, ${u.N} nodes`;
+  drawPrune(u,name);drawComp(u,name);drawCP(u,name)}
+
+function drawPrune(u,name){const el=document.getElementById('chart1');const ids=[];for(let i=0;i<u.N;i++)if(u.level[i]>=state.L)ids.push(i);
+  const idx=new Int32Array(u.N).fill(-1);ids.forEach((g,i)=>idx[g]=i);const edges=[];for(const[a,b]of u.edges)if(idx[a]>=0&&idx[b]>=0)edges.push([idx[a],idx[b]]);
+  const N=ids.length;document.getElementById('c1sub').textContent=`${name}; ${state.method==='led'?'backbone at level':'k-core with k ='} ${state.L}: ${N} nodes, ${edges.length} edges`;
+  if(edges.length<2){el.innerHTML='<div class="empty-msg">Too few edges left to prune. Move the level slider down.</div>';return}
+  const{h,deg}=hubCentrality(N,edges);const hP=edges.map(([a,b])=>h[a]*h[b]),kP=edges.map(([a,b])=>deg[a]*deg[b]);
+  const series=[{pts:pruneCurve(N,edges,hP),c:'var(--accent)',n:'Hub-centrality product',w:2.2},{pts:pruneCurve(N,edges,kP),c:'var(--lower)',n:'Degree product',w:1.5}];
+  if(N*edges.length<6e6)series.push({pts:pruneCurve(N,edges,edgeBetweenness(N,edges)),c:'var(--same)',n:'Edge betweenness',w:1.5});
+  const e0=hP.filter(v=>v===0).length/edges.length;
+  const sx=lin(0,1,PM.l,CW-PM.r),sy=lin(0,1,CH-PM.b,PM.t);const t=[0,.25,.5,.75,1].map(v=>[v,v]);
+  let g=frame(t,t,sx,sy,'fraction p of edges removed','giant component G');
+  g+=`<line x1="${sx(e0)}" x2="${sx(e0)}" y1="${PM.t}" y2="${CH-PM.b}" style="stroke:var(--ink-2)" stroke-dasharray="3 3"/>`;
+  g+=txt(sx(e0)+(e0>0.7?-4:4),CH-PM.b-6,`cusp pc = ${e0.toFixed(2)}`,{anchor:e0>0.7?'end':'start',fill:'var(--ink-2)'});
+  for(const s of series.slice().reverse())g+=`<path d="${pathOf(s.pts,sx,sy)}" fill="none" style="stroke:${s.c}" stroke-width="${s.w}" stroke-linejoin="round"/>`;
+  series.forEach((s,i)=>{const y=PM.t+10+i*15;g+=`<line x1="${CW-PM.r-138}" x2="${CW-PM.r-124}" y1="${y-3}" y2="${y-3}" style="stroke:${s.c}" stroke-width="2.4"/>`+txt(CW-PM.r-120,y,s.n,{anchor:'start',fill:'var(--ink-2)'})});
+  el.innerHTML=svg(g)}
+
+function drawComp(u,name){const el=document.getElementById('chart2');const a=u.minL,K=u.maxL-a+1;
+  document.getElementById('c2sub').textContent=`${name}; ${state.method==='led'?'LED levels':'k-shells'}`;
+  if(K<1||u.N<2){el.innerHTML='<div class="empty-msg">A single node has no neighbours to compare.</div>';return}
+  const hi=new Float64Array(K),lo=new Float64Array(K),sa=new Float64Array(K),cnt=new Int32Array(K);
+  for(let i=0;i<u.N;i++)cnt[u.level[i]-a]++;
+  for(const[p,q]of u.edges){const lp=u.level[p]-a,lq=u.level[q]-a;if(lp===lq)sa[lp]+=2;else if(lp<lq){hi[lp]++;lo[lq]++}else{hi[lq]++;lo[lp]++}}
+  const x0=PM.l,x1=CW-PM.r,bw=(x1-x0)/K,sy=lin(0,1,CH-PM.b,PM.t);
+  let g=frame([],[0,.5,1].map(v=>[v,v]),v=>v,sy,state.method==='led'?'level L':'core number k','fraction of neighbours');
+  const every=Math.ceil(K/12);
+  for(let k=0;k<K;k++){const x=x0+k*bw+bw*0.1,w=bw*0.8,tot=hi[k]+lo[k]+sa[k],cur=(k+a)===state.L;
+    if(!cnt[k]||!tot){g+=`<rect x="${x}" y="${sy(1)}" width="${w}" height="${sy(0)-sy(1)}" style="fill:var(--empty)"/>`}
+    else{let y=sy(0);for(const[v,c]of[[sa[k],'var(--same)'],[lo[k],'var(--lower)'],[hi[k],'var(--higher)']]){const hgt=(sy(0)-sy(1))*v/tot;y-=hgt;g+=`<rect x="${x}" y="${y}" width="${w}" height="${hgt}" style="fill:${c}"/>`}}
+    if(cur)g+=`<rect x="${x-1.5}" y="${sy(1)-1.5}" width="${w+3}" height="${sy(0)-sy(1)+3}" fill="none" style="stroke:var(--ink)" stroke-width="1.5"/>`;
+    if(k%every===0||k===K-1)g+=txt(x+w/2,CH-PM.b+15,k+a)}
+  const lg=[['higher level','var(--higher)'],['lower level','var(--lower)'],['same level','var(--same)']];
+  el.innerHTML=svg(g)+`<div class="legend" style="padding-top:2px">${lg.map(([n,c])=>`<span><span class="sw" style="background:${c}"></span>${n}</span>`).join('')}</div>`}
+
+function drawCP(u,name){const el=document.getElementById('chart3');const rows=u.cp.rows.filter(r=>r.S!==null);
+  const b=u.cp.best;document.getElementById('c3sub').textContent=b?`${name}; best boundary L*B = ${b.LB}, core of ${b.Nc} nodes, Scp = ${b.S.toFixed(3)}`:`${name}`;
+  if(!rows.length){el.innerHTML=`<div class="empty-msg">${u.maxL===u.minL?'Only one level here, so there is no boundary to score. Star-shaped groups end up like this, as the paper notes.':'The score is undefined for every boundary here.'}</div>`;return}
+  const xa=rows[0].LB,xb=rows[rows.length-1].LB,pad=xa===xb?1:0;const sx=lin(xa-pad,xb+pad,PM.l+8,CW-PM.r-8);
+  const lg=v=>Math.log10(v),sy0=lin(-3,0,CH-PM.b,PM.t),sy=v=>sy0(Math.max(-3,lg(v)));
+  const yt=[[1e-3,'0.001'],[1e-2,'0.01'],[1e-1,'0.1'],[1,'1']];const step=Math.max(1,Math.ceil((xb-xa+1)/10));
+  const xt=[];for(let v=xa;v<=xb;v+=step)xt.push([v,v]);
+  let g=frame(xt,yt,sx,sy,'boundary level LB','density or score');
+  if(state.L>=xa&&state.L<=xb)g+=`<line x1="${sx(state.L)}" x2="${sx(state.L)}" y1="${PM.t}" y2="${CH-PM.b}" style="stroke:var(--ink-3)" stroke-dasharray="2 3"/>`;
+  if(b)g+=`<line x1="${sx(b.LB)}" x2="${sx(b.LB)}" y1="${PM.t}" y2="${CH-PM.b}" style="stroke:var(--accent)" stroke-width="1.5"/>`+txt(sx(b.LB)+(sx(b.LB)>CW-90?-4:4),PM.t+10,`L*B = ${b.LB}`,{anchor:sx(b.LB)>CW-90?'end':'start',fill:'var(--accent)'});
+  const S=[['Dcc','var(--ink)','Dcc'],['Dcp','var(--higher)','Dcp'],['Dpp','var(--same)','Dpp'],['S','var(--accent)','Scp']];
+  for(const[k,c]of S){const pts=rows.filter(r=>r[k]!==null&&r[k]>0).map(r=>[r.LB,r[k]]);if(!pts.length)continue;
+    g+=`<path d="${pts.map((p,i)=>(i?'L':'M')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join('')}" fill="none" style="stroke:${c}" stroke-width="${k==='S'?2:1.2}" opacity="${k==='S'?1:0.75}"/>`;
+    for(const p of pts)g+=`<circle cx="${sx(p[0])}" cy="${sy(p[1])}" r="${k==='S'?2.6:2}" style="fill:${c}"/>`}
+  el.innerHTML=svg(g)+`<div class="legend" style="padding-top:2px">${S.map(([k,c,n])=>`<span><span class="sw" style="background:${c}"></span>${n.replace(/^(D|S)(\w+)$/,'$1<sub>$2</sub>')}</span>`).join('')}<span>dotted line: current slider level</span></div>`}
+
+/* ---------------- controls ---------------- */
+function renderParams(){const p=document.getElementById('params');let h='';
+  if(state.gen==='communities')h=`<div class="field"><label for="pn">Nodes</label><output id="pnOut">${state.n}</output><input type="range" id="pn" min="80" max="600" step="10" value="${state.n}"></div>
+    <p class="small">Eight groups of very different sizes, each grown by preferential attachment, loosely linked to one another. The small groups' hubs have modest degree but <i>h</i> near 1.</p>`;
+  else if(state.gen==='ba')h=`<div class="field"><label for="pn">Nodes</label><output id="pnOut">${state.baN}</output><input type="range" id="pn" min="50" max="700" step="10" value="${state.baN}"></div>
+    <div class="field"><label for="pm">Stubs per new node, m</label><output id="pmOut">${state.m}</output><input type="range" id="pm" min="1" max="6" step="1" value="${state.m}"></div>
+    <p class="small">In the BA model every level looks like the one before it, so the pruning curves at different levels nearly collapse (Fig. 4).</p>`;
+  else if(state.gen==='sbm')h=`<p class="small">Blocks of 20, 40 and 100 nodes with the densities from Fig. 10. The inner block never touches the outer one. Compare how LED and k-core rank the 20 innermost nodes.</p>`;
+  else if(state.gen==='karate')h=`<p class="small">Zachary's karate club (1977): 34 members, 78 friendships. Node 1 is the instructor and node 34 the administrator whose dispute split the club in two. Try the “within communities” scope to see each faction's own core.</p>`;
+  else if(state.gen==='fig3')h=`<p class="small">A hand-built graph like Fig. 3: leaves and low-degree nodes form level 0, their neighbours level 1, and a 4-clique survives to level 2.</p>`;
+  else h=`<label for="edgeText" class="small">One edge per line, two node names separated by a space or comma</label>
+    <textarea id="edgeText" placeholder="alice bob&#10;bob carol&#10;carol alice&#10;carol dave">${escapeHTML(state.custom)}</textarea>
+    <div class="row"><button type="button" class="primary" id="loadEdges">Load edges</button></div>${state.customErr?`<p class="err">${escapeHTML(state.customErr)}</p>`:''}
+    ${G&&G.dropped&&state.gen==='custom'?`<p class="small">${G.dropped} node${G.dropped>1?'s':''} outside the largest connected component were left out.</p>`:''}`;
+  if(!['fig3','custom','karate'].includes(state.gen))h+=`<div class="row"><button type="button" id="resample">New sample</button></div>`;
+  p.innerHTML=h;
+  const pn=document.getElementById('pn');if(pn){pn.oninput=()=>{document.getElementById('pnOut').textContent=pn.value};pn.onchange=()=>{if(state.gen==='ba')state.baN=+pn.value;else state.n=+pn.value;regenerate()}}
+  const pm=document.getElementById('pm');if(pm){pm.oninput=()=>{document.getElementById('pmOut').textContent=pm.value};pm.onchange=()=>{state.m=+pm.value;regenerate()}}
+  const rs=document.getElementById('resample');if(rs)rs.onclick=()=>{state.seed++;regenerate()};
+  const le=document.getElementById('loadEdges');if(le)le.onclick=()=>{state.custom=document.getElementById('edgeText').value;regenerate()}}
+
+function regenerate(){stopPlay();const g=generate();if(!g){renderParams();return}
+  G=g;cache={};state.L=0;state.sel=0;detectCommunities();initSim();rebuild();renderParams()}
+
+document.getElementById('gen').onchange=e=>{state.gen=e.target.value;if(state.gen==='custom'&&!state.custom){state.customErr='';renderParams();return}regenerate()};
+document.querySelectorAll('input[name=method]').forEach(r=>r.onchange=()=>{state.method=r.value;stopPlay();rebuild()});
+document.querySelectorAll('input[name=scope]').forEach(r=>r.onchange=()=>{state.scope=r.value;stopPlay();rebuild()});
+document.querySelectorAll('input[name=color]').forEach(r=>r.onchange=()=>{state.color=r.value;updateColors();updateLegend()});
+const gm=document.getElementById('gamma');gm.oninput=()=>{document.getElementById('gammaOut').textContent=(+gm.value).toFixed(1)};
+gm.onchange=()=>{state.gamma=+gm.value;detectCommunities();rebuild()};
+document.getElementById('commSel').onchange=e=>{state.sel=+e.target.value;onLevel()};
+const lvl=document.getElementById('lvl');lvl.oninput=()=>{stopPlay();state.L=+lvl.value;onLevel()};
+
+let playTimer=null;const playBtn=document.getElementById('play');
+function stopPlay(){if(playTimer){clearInterval(playTimer);playTimer=null}playBtn.textContent='Peel'}
+playBtn.onclick=()=>{if(playTimer){stopPlay();return}if(state.L>=lvlMax){state.L=lvlMin;lvl.value=state.L;onLevel()}
+  playBtn.textContent='Pause';
+  playTimer=setInterval(()=>{if(state.L>=lvlMax){stopPlay();return}state.L++;lvl.value=state.L;onLevel()},Math.max(350,Math.min(1100,9000/Math.max(1,lvlMax-lvlMin))))};
+
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{readTokens();if(G){updateColors();drawCharts()}});
+
+readTokens();resize();regenerate();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
